@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2025-01-20
+
+### Added
+- **Queue Bindings** - Send events to message queues for async processing (`env.queue("analytics")`)
+- **Geo Headers** - Automatic `X-Edge-Country`, `X-Edge-Region`, `X-Edge-City` headers on requests
+- **SDK Utilities** - Added `regex`, `rand`, `sha2`, `chrono` crates to SDK
+- **Claude Code Support** - `workrs-edge init` now optionally generates AI assistant configs
+
+### Fixed
+- KV storage now works correctly in deployed workers
+
 ## [0.1.6] - 2025-01-19
 
 ### Fixed

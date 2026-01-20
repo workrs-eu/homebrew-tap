@@ -13,6 +13,8 @@ Workrs Edge is a high-performance edge computing platform for Europe. Write your
 - **WebAssembly Runtime** - Secure, sandboxed execution with Wasmtime
 - **Sub-millisecond Cold Starts** - Pre-compiled modules with pooled instances
 - **Built-in KV Storage** - Distributed key-value store with automatic multi-region sync
+- **Queue Bindings** - Send messages to Redis Streams for async processing
+- **Geo Headers** - Automatic geo-location headers (country, region, city)
 - **CRDT Replication** - Eventual consistency across edge locations
 - **Developer CLI** - Build, test, and deploy from your terminal
 
@@ -82,6 +84,36 @@ async fn handle(req: Request, env: Env) -> Result<Response> {
 }
 ```
 
+### With Analytics & Geo Headers
+
+```rust
+use worker_sdk::prelude::*;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct PageView {
+    path: String,
+    country: String,
+    timestamp: i64,
+}
+
+#[event(fetch)]
+async fn handle(req: Request, env: Env) -> Result<Response> {
+    // Get geo info from headers (auto-injected by gateway)
+    let country = req.header("X-Edge-Country").unwrap_or("XX");
+
+    // Send analytics event to queue
+    let analytics = env.queue("analytics")?;
+    analytics.send(&PageView {
+        path: req.path().to_string(),
+        country: country.to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+    }).await?;
+
+    Ok(Response::text(format!("Hello from {}!", country)))
+}
+```
+
 ---
 
 ## Documentation
@@ -90,7 +122,7 @@ async fn handle(req: Request, env: Env) -> Result<Response> {
 |-------|-------------|
 | [Getting Started](https://workrs.eu/docs/getting-started) | Installation and first worker |
 | [CLI Reference](https://workrs.eu/docs/cli) | All CLI commands |
-| [Worker SDK](https://workrs.eu/docs/worker-sdk) | SDK API reference |
+| [Worker SDK](https://workrs.eu/docs/worker-sdk) | SDK API reference (KV, Queues, Geo) |
 | [KV Storage](https://workrs.eu/docs/kv-store) | Key-value storage guide |
 
 ---
