@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-14
+
+The `v0.2.0` tag pipeline failed on the CI `lint:audit` gate and published nothing: there is
+no GitHub release and no Homebrew formula for 0.2.0. This tag is the first published build of
+the 0.2.0 feature set (origin proxy, WAF engine, split listeners), with the audit fix, the
+Rust 1.98 toolchain and the dependency refresh below on top.
+
+### Changed
+- Rust toolchain moved from 1.95.0 to 1.98.1. `rust-toolchain.toml` pins the exact version, the CI lint and build jobs use `rust:1.98-slim` and `rust:1.98`, and the gateway images build on `rust:1.98-bookworm` (`gateway/Dockerfile` was still on the stale 1.85, the workrs-network gateway builder floated on `rust:1-bookworm` and is now pinned).
+- Full lockfile refresh: one `cargo update` moved every dependency to its newest semver-compatible release. This is what clears the eight advisories below; every later dependency change in this release was scoped with `cargo update -p <crate>`.
+- Bumped `dirs` from 6 to 7 (CLI login config path).
+- Bumped `tokio-tungstenite` from 0.29 to 0.30. No API change at the call sites (config subscriber, `tail`).
+- Bumped `prometheus` from 0.13 to 0.14, which moves `protobuf` from 2.x to 3.7.2 and retires the RUSTSEC-2024-0437 ignore. The metric accessor renames (`get_name` to `name` and friends) are applied in `gateway/src/metrics.rs` and `gateway/src/health.rs`.
+- Bumped `jsonschema` from 0.46 to 0.56 for the WAF API Shield validator; the code already used the `validator_for`/`Validator`/`iter_errors` API.
+- Bumped `maxminddb` from 0.24 to 0.32 and migrated the geo lookup: `lookup()` now returns a result that is decoded with `decode::<geoip2::City>()`, nested structs became non-optional `Default` values, `subdivisions` is a `Vec` and `names` is a struct. Behaviour is unchanged for a missing database and an unknown IP (both yield no geo data).
+- Bumped `reqwest` from 0.12 to 0.13: TLS verification now goes through `rustls-platform-verifier` (OS store on Linux, keychain on macOS), crypto provider `ring` to `aws-lc-rs`. Features are pinned explicitly (`json`, `form`, `rustls`) because 0.13 drops `rustls-tls-native-roots` and makes `form` opt-in.
+- Bumped `redis` from 0.27 to 1.7 and `deadpool-redis` from 0.18 to 0.23. redis 1.x introduces default async timeouts (500 ms response, 1 s connect); both are explicitly disabled so KV, cache, webhook and dev-runtime behaviour matches 0.27. `ErrorKind::IoError` became `ErrorKind::Io`, and the `connection-manager` feature was dropped as unused.
+- Removed the `wit-bindgen` dependency from the workspace and the worker SDK. It was declared for wasm32 targets but imported nowhere: workers are core WASM modules and the CLI template pins no wit-bindgen.
+- Pruned `.cargo/audit.toml` to a single ignore, RUSTSEC-2023-0071 (`rsa`, Marvin timing attack, no fixed release exists). The `bytes`, `rand`, `quinn-proto`, `protobuf` and `maxminddb` ignores are gone because the refresh and the bumps patched them.
+- Documented minimum Rust for user workers raised from 1.83 to 1.85 in `docs/getting-started.md`, matching the worker SDK's transitive MSRV. The workspace still declares no `rust-version`, so nothing is forced on worker crates.
+
+### Security
+All eight advisories below had accumulated on `main` and none originated in the 0.2.0 feature
+work. `cargo audit` is back to 0 vulnerabilities; only maintenance warnings remain (`fxhash`,
+`rustls-pemfile`).
+
+- Bumped `wasmtime-wasi` from 36.0.10 to 36.0.15 to patch **RUSTSEC-2026-0182**: leak in the WASIp1 `fd_renumber` implementation (fixed upstream in 36.0.11).
+- Bumped `wasmtime-wasi` from 36.0.10 to 36.0.15 to patch **RUSTSEC-2026-0188**: WASI hard links and renames bypassed `FilePerms` for the destination path (fixed upstream in 36.0.12).
+- Bumped `wasmtime` from 36.0.10 to 36.0.15 to patch **RUSTSEC-2026-0222**: stores could mix up type indices between engines (fixed upstream in 36.0.13).
+- Bumped `wasmtime` from 36.0.10 to 36.0.15 to patch **RUSTSEC-2026-0269**: filesystem sandbox escape when paths or symlinks contain trailing slashes (fixed upstream in 36.0.14).
+- Bumped `h2` from 0.4.14 to 0.4.19 to patch **RUSTSEC-2026-0258**: unbounded empty DATA frames (fixed upstream in 0.4.16).
+- Bumped `quinn-proto` from 0.11.14 to 0.11.18 to patch **RUSTSEC-2026-0185**: remote memory exhaustion from unbounded out-of-order stream reassembly (fixed upstream in 0.11.15).
+- Bumped `crossbeam-epoch` from 0.9.18 to 0.9.21 to patch **RUSTSEC-2026-0204**: invalid pointer dereference in the `fmt::Pointer` impl for `Atomic` and `Shared` when the underlying pointer is invalid (fixed upstream in 0.9.20).
+- Bumped `webbrowser` from 1.2.1 to 1.2.4 to patch **RUSTSEC-2026-0257**: Unix `BROWSER` handling allowed browser argument injection (fixed upstream in 1.2.2).
+
+## [0.2.0] - 2026-09-14
+
+### Added
+- **Origin proxy for proxied DNS records.** A domain the control plane sends a `proxy` block for is now reverse-proxied to the customer's origin instead of 404ing when no worker slug matches: the edge terminates TLS for the hostname, runs the WAF, and streams the request and response bodies both ways. An explicit worker slug still wins; everything else reaches the origin with the full path. Includes forwarded headers (`X-Forwarded-For`/`-Proto`/`-Host`, `X-Real-IP`, `Via`, `Workrs-Ray`), hop-by-hop stripping, WebSocket passthrough, a Valkey-backed response cache honouring `Cache-Control`/`ETag` with generation-based purging (`purge_cache` edge command), 502/504 mapping with a `Workrs-Error` header, and an origin policy that refuses link-local, metadata, private and loopback addresses (`ALLOW_PRIVATE_ORIGINS=true` relaxes the last two for local development). See `docs/gateway.md`.
+- Gateway `[listen]` may now be a table with separate `https` and `http` addresses; with `[proxy] http_redirect = true` (the default) the plain-HTTP socket answers 301/308 redirects to HTTPS. The legacy `listen = "0.0.0.0:8080"` string and the `--listen` flag keep working unchanged. The HTTPS listener binds at startup even before the control plane has delivered a certificate, and starts completing handshakes as soon as sync does.
+- Gateway `[listen]` gained an optional `management` address (`management = "10.88.0.21:8080"`). When set, `/health`, `/metrics` and `/health/detailed` are served on that private socket only and disappear from the public 80/443 routers, so a public edge no longer exposes its metrics to the internet or 301s the control plane's polls. The control plane polls `{management_address}/health/detailed` (bearer token) and `/metrics` over WireGuard. A management address that cannot be bound is fatal at startup. Without the option nothing changes: the operational endpoints stay on the public listeners. See `docs/gateway.md`.
+- CI job `build:gateway-linux-x64` builds the edge gateway for `x86_64-unknown-linux-gnu` and publishes `edge-gateway-x86_64-unknown-linux-gnu.tar.gz` plus its `.sha256` (automatic on tags, manual on `main`). `ops/build-gateway.sh <control-plane-url> [version]` does the same locally, natively on a Linux x86_64 host and through the `linux/amd64` builder image everywhere else, then uploads the binary to the control plane with `INTERNAL_API_KEY`.
+- CLI `delete` command removes a worker from the control plane (`workrs-edge delete [name]`). The worker is resolved like `env`/`secret` (team from `[project].team` or `--team`, name from the positional argument or the manifest), confirmed with a yes/no prompt, and deleted via `DELETE /api/workers/{id}`. Pass `--yes`/`-y` to skip the prompt in scripts.
+- CLI `kv` command group for managing team KV namespaces: `kv list` prints the team's namespaces, `kv create <name>` creates one bound to a domain (`--domain` or `[project].domain`), and `kv delete <name>` resolves the name to its UUID before deleting. Duplicate names across domains must be disambiguated with `--domain`; the 409 "still bound to a worker" response surfaces as a readable error. `kv delete` supports `--yes` to skip confirmation.
+- CLI `tail` now auto-configures its Reverb WebSocket connection from the `/api/me` reverb block, so `workrs-edge tail` works with zero flags. `--ws-url` and `--ws-app-key` (and their `WORKRS_WS_URL` / `WORKRS_WS_APP_KEY` env vars) became optional overrides that win when supplied.
+- **Edge WAF engine.** The gateway now evaluates the per-domain `firewall` block the control plane syncs (`gateway/src/waf/`): a structured condition matcher with the full operator set (including `in_list` and CIDR), priority ordering, `allow`/`block`/`log`/`skip` actions, enforce versus simulate mode and an open/closed `fail_mode`, plus a bundled managed ruleset (SQLi, XSS, path traversal, RCE, scanners) with sensitivity tiers. Rules run after body buffering and geo injection, before dispatch. Decisions emit Prometheus metrics and are batched to `/api/edge/waf-events`. See `docs/waf.md`.
+- WAF rate limiting and sensitive-data detection. The `rate_limit` action is enforced by a per-`(rule_id, key)` token-bucket limiter (keys: `ip`, `ip_path`, `header`) that answers 429 with `Retry-After`, and bundled detectors flag credentials and PII (AWS keys, PEM private keys, JWTs, Luhn-validated card numbers, IBANs) in the request body and, when enabled, the worker response. Matched values are redacted before an event is emitted. The client IP now comes from the real socket peer, so IP, CIDR, country and ASN conditions match.
+- WAF JavaScript proof-of-work challenge, self-hosted on the edge. The `challenge`/`js_challenge` action serves an interstitial that solves SHA-256 for 14, 18 or 22 leading zero bits (easy/medium/hard) and posts to `/__waf/challenge`; the gateway verifies the HMAC-signed token, its freshness and the proof, then issues a signed `__waf_clear` cookie. No third-party service and no PII leaves the edge, and the interstitial works over plain HTTP as well as HTTPS.
+- WAF computed condition fields `bot_score` and `attack_score` (0 to 100). `bot_score` is an HTTP heuristic (automation or missing user agent, missing browser headers, datacenter ASN); `attack_score` accumulates weighted managed-signature hits. Each is computed at most once per request, only when a rule references it and the per-domain toggle is on, and drives the existing `log`, `challenge` and `block` actions.
+- WAF API Shield: per-domain OpenAPI 3.x request validation. An uploaded spec is compiled once and every request is matched by method and templated path, then its JSON body validated against the operation schema. Violations (`unknown_path`, `method_not_allowed`, `missing_param`, `body_schema`) raise an `api_schema` event; report mode proceeds, enforce mode answers 400.
+
+### Changed
+- The gateway's and CLI's HTTP client (reqwest) now trusts the operating system's CA store (`rustls-tls-native-roots`, matching the WebSocket client) instead of the bundled webpki roots. Edges read `/etc/ssl/certs`, so a locally trusted CA (for example Laravel Valet's, for webhooks to a `*.test` site) works without code changes; the CLI on macOS uses the keychain.
+- Deployment docs describe the production install as the control plane renders it: `/etc/workrs/gateway.toml` with the split listen table and a management address, `/etc/workrs/gateway.env` with `HEALTH_DETAILED_TOKEN`, and a unit ordered after `network-online.target` and `wg-quick@wg0.service`. The certbot/ACME instructions are gone (certificates come from the control plane), and `provisioning/bootstrap.sh` is marked retired: it writes a config without a `[kv]` section, which the current gateway refuses to start with.
+- WAF rate limiter now bounds its memory: once the per-`(rule_id, key)` token-bucket map crosses a soft cap, fully-refilled (idle) buckets are evicted. This is lossless (a refilled bucket equals a fresh one), so high-cardinality keys (`ip`/`ip_path`) no longer grow the map unbounded until restart.
+- The origin proxy now speaks HTTP/1.1 to origins. Over HTTP/2 hyper sends both `:authority` and the forwarded `Host` header, which nginx rejects as a duplicate `Host` header with a 400.
+- `ops/build-gateway.sh` now supports both the `--checkout DIR` / `--ref REF` control-plane style and the positional `<control-plane-url> [version]` style, resolves the version from the tag or the binary, and refuses to upload a `0.0.0-dev` build without `--allow-dev`; the copy in workrs-network/ops is byte-identical.
+
+### Fixed
+- Gateway no longer loses the file-based fallback certificate (`[tls] cert_path`/`key_path`) when the control plane sends a certificate payload without a default certificate. The file certificate is now remembered separately and reinstated on every such sync, so handshakes without SNI keep working.
+- Gateway module cache no longer serves stale pre-compiled modules. Entries now live in `/var/cache/edge-gateway/wasmtime-<tag>/`, where the tag combines a cache format version with Wasmtime's `Engine::precompile_compatibility_hash()`, so artifacts from an older engine (for example the Wasmtime 27 `.cwasm` files left behind by the 36.x upgrade) are ignored and cleaned up on startup along with legacy unversioned files. `is_cached()` now deserializes the entry instead of only checking that the file exists, and invalidates it on failure; `get_or_compile()` rejects an empty WASM slice with a typed `ModuleCacheError::MissingSource` rather than compiling nothing. Previously a stale entry made the gateway answer every request with `HTTP 500 "expected at least one module field"` until the cache directory was cleared by hand. A module that goes missing between the cache probe and execution now returns `503` with `Retry-After: 1`.
+- Deploy now posts to the worker deploy routes the control plane actually exposes, and sends `kv_namespaces` and `queue_bindings` as arrays of `{id, binding_name}` / `{queue_id, binding_name}` objects matching the `DeployWorkerRequest` validation, instead of the previous map shape.
+
+### Security
+- Bump Wasmtime `36.0.9` to `36.0.10` to patch **RUSTSEC-2026-0149**: WASI `path_open(TRUNCATE)` bypassed the host `FilePerms::WRITE` restriction (CVSS 7.5, high). Same-minor patch, no API change. This was failing the CI `lint:audit` gate.
+
 ## [0.1.10] - 2026-05-20
 
 Re-release of 0.1.9. The 0.1.9 pipeline failed in the release/publish
@@ -70,7 +136,7 @@ identical dependency set and source with the pipeline fixes in place.
 - Wrap API key in `RwLock` for in-memory hot-swap during rotation
 
 ### Fixed
-- Fix gateway not shutting down on restart/stop commands — server now listens for cancellation token
+- Fix gateway not shutting down on restart/stop commands: server now listens for cancellation token
 - Fix command poll deserialization: parse `{"commands": [...]}` wrapper instead of raw array
 
 ### Added
