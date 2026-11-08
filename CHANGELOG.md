@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-08
+
+### Fixed
+- Secrets set with `workrs-edge secret put` now reach the worker. `Env::secret` read only plain variables, the gateway dropped worker secrets from the control plane config, and team secrets were stored but never exposed, so a worker relying on a secret got "not found" at both scopes. `Env::secret` now resolves the worker's own secret first, then the team secret, then (for workers that kept sensitive values in plain variables) an environment variable of that name.
+- SDK: `Env::secret` uses a new host call, `__host_secret_get`, and `Env::var` no longer returns secrets in `workrs-edge dev` either, matching the gateway. A worker built with this SDK needs gateway and `workrs-edge` 0.2.2 or later: an older gateway lacks the host call and refuses to start the worker. Rebuild workers that read secrets after the gateways are upgraded.
+- CLI: `workrs-edge dev` serves `edge.toml` secrets through `Env::var` again for workers built with an older SDK (no `__host_secret_get` import), as 0.2.1 did; a worker built with this SDK still cannot read them through `var`. The dev secret call also refuses names over 4 KB, like the gateway.
+- Gateway: `X-Edge-Region` was never set with DB-IP City Lite, the documented database, because that edition has subdivision names but no ISO codes. US states and DC now map from the name to their USPS code. An ISO code still wins when a database has one, and other countries are unchanged.
+
+### Security
+- Gateway: client-supplied `X-Edge-*`, `X-Geo-*` and `CF-IPCountry` headers no longer reach a worker, from any peer. Previously a forged `X-Edge-Country` was passed through untouched and sat ahead of the gateway's own value, so `Headers::get` in the worker SDK returned the forged one even when the geo lookup succeeded. A worker choosing behaviour by location could be steered by the visitor.
+- Gateway: WAF `country` rules now use the geo lookup of the client IP on proxied hosts. They read the raw `X-Edge-Country` request header there, so the visitor chose their own country and, without the header, no country rule ever fired. The worker path gets the same resolved value. With the country unknown, no country rule matches.
+- Gateway: `[security.trusted_proxies] enabled = false` now means no peer is trusted. It used to mean the opposite: the leftmost `X-Forwarded-For` value from any peer became the client address, and with it the geo lookup and the WAF's client IP. No shipped configuration sets this. If you did, and you have a proxy in front of the gateway, set `enabled = true` and list it under `addresses`.
+- Gateway: the `X-Forwarded-For` chain from a trusted proxy now spans every header line. Only the first line was read, so a proxy appending its hop as a separate line left the client's forged line as the whole chain.
+- Gateway: client-supplied `X-Edge-*`, `X-Geo-*` and `CF-IPCountry` headers no longer reach a proxied origin, from trusted or untrusted peers. Before, `CF-IPCountry` and `X-Geo-*` were always forwarded and `X-Edge-*` was dropped only for untrusted peers, so an origin trusting them could be steered by the visitor when the geo lookup missed or was disabled.
+- Gateway: the `X-Forwarded-For` chain sent to a proxied origin now joins every header line from a trusted proxy, in order. Only the first line was used, so later hops were dropped.
+- Gateway and CLI: `Debug` output of teams, workers, config responses and the `workrs-edge dev` config no longer contains secret values, only a count or the names.
+
 ## [0.2.1] - 2026-09-14
 
 The `v0.2.0` tag pipeline failed on the CI `lint:audit` gate and published nothing: there is

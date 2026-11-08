@@ -1,28 +1,28 @@
 class WorkrsEdge < Formula
   desc "EU Edge Platform CLI - Build and deploy workers"
   homepage "https://workrs.eu"
-  version "0.2.1"
+  version "0.2.2"
   license "MIT"
 
   on_macos do
     on_intel do
-url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.1/workrs-edge-x86_64-apple-darwin.tar.gz"
-sha256 "ea131b0f224176dfd35bc5a13d1ef379e99bd25c46faddf0f35a692926037f7d"
+url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.2/workrs-edge-x86_64-apple-darwin.tar.gz"
+sha256 "ade603c6707b835987e63b507dbc645728f13c28773c5a1ef8e355ae28a22458"
     end
     on_arm do
-url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.1/workrs-edge-aarch64-apple-darwin.tar.gz"
-sha256 "619bb6cf5290b0c6baeb7bc328fa84a4de7df70f3d126caf1371ae26b4ec0368"
+url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.2/workrs-edge-aarch64-apple-darwin.tar.gz"
+sha256 "61ca136fde268a48d50e32d88cb7ec0cc5b042d8cb9c7732edb5d8eef45c3451"
     end
   end
 
   on_linux do
     on_intel do
-url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.1/workrs-edge-x86_64-unknown-linux-gnu.tar.gz"
-sha256 "4aeea6c42d7214b5f003f1555e54d0c23e5d4a37d9a99e20df0dba31ab695db4"
+url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.2/workrs-edge-x86_64-unknown-linux-gnu.tar.gz"
+sha256 "0a05a5e2d468fac1e54784c89db15c82484e9161c755b681ec6c576e14f82753"
     end
     on_arm do
-url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.1/workrs-edge-aarch64-unknown-linux-gnu.tar.gz"
-sha256 "bd1a80688d08ddb496c57231b8a740db90842dc6781d41f48edeaae4ddefab08"
+url "https://github.com/workrs-eu/homebrew-tap/releases/download/v0.2.2/workrs-edge-aarch64-unknown-linux-gnu.tar.gz"
+sha256 "1055ec0e24318403afab20f56d4c3ad14aca0571178b7fac19d7cf348b639c64"
     end
   end
 
